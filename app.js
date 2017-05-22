@@ -155,44 +155,49 @@ function monitorTransactions(wallet) {
         res.forEach((tx) => {
             Tx.findById(tx.meta.id).then(transaction => {
                 if (transaction == null) {
-                    if (tx.transaction.message.type !== 2 && tx.transaction.message.payload) {
-                        //  Decode
-                        var wordArray = nem.crypto.js.enc.Hex.parse(tx.transaction.message.payload);
-                        var challengeCode = nem.crypto.js.enc.Utf8.stringify(wordArray);
-
-                        User.findOne({ where: { challenge: challengeCode } }).then(user => {
-                            if (user) {
-                                var wallet = nem.model.wallet.createPRNG(user.username,
-                                    WALLET_PASSWORD,
-                                    NETWORK);
-
-                                user.challenge = challengeCode;
-                                user.wallet = JSON.stringify(wallet);
-
-                                user.save();
-
-                                var msg = {
-                                    to: user.username,
-                                    subject: "Account registered!",
-                                    text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
-                                    "We received your NEM transaction and your account has been successfully registered with the nem tip bot!\r\n\r\n" +
-                                    "We've sent you an address containing your " +
-                                    "You can start tipping immediately."
-                                }
-
-                                r.composeMessage(msg);
-                            }
-                        });
-                    }
+                    processTransaction(tx);
 
                     //  Mark transaction as processed.
-                    Tx.build({id: tx.meta.id}).save();
+                    Tx.build({ id: tx.meta.id }).save();
                 }
             });
         });
     }, function (err) {
         console.error(err);
     });
+}
+
+function processTransaction(tx) {
+    if (tx.transaction.message.type !== 2 && tx.transaction.message.payload) {
+        //  Decode challenge code.
+        var wordArray = nem.crypto.js.enc.Hex.parse(tx.transaction.message.payload);
+        var challengeCode = nem.crypto.js.enc.Utf8.stringify(wordArray);
+
+        User.findOne({ where: { challenge: challengeCode } }).then(user => {
+            if (user) {
+                var wallet = nem.model.wallet.createPRNG(user.username,
+                    WALLET_PASSWORD,
+                    NETWORK);
+
+                user.challenge = challengeCode;
+                user.wallet = JSON.stringify(wallet);
+
+                user.save();
+
+                var msg = {
+                    to: user.username,
+                    subject: "Account registered!",
+                    text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
+                    "We've received your NEM transaction and your account has been successfully registered with the nem tip bot!\r\n\r\n" +
+                    "We've sent you an address containing your tip account private key. Funds will be used from that address " +
+                    "so be sure it has XEM.\r\n\r\n" +
+                    "Aside from that, you can start tipping immediately."
+                }
+
+                r.composeMessage(msg);
+            }
+        });
+    }
 }
 
 function monitorComments() {
