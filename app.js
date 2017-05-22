@@ -1,9 +1,9 @@
 ﻿require('dotenv').config();
 
 var nem = require('nem-sdk').default;
-var sqlite3 = require('sqlite3').verbose();
 var snoowrap = require('snoowrap');
 const SnooStream = require('snoostream');
+const Sequelize = require('sequelize');
 
 var r = new snoowrap({
     userAgent: process.env.REDDIT_USER_AGENT,
@@ -29,36 +29,26 @@ const SUBREDDIT = process.env.REDDIT_SUBREDDIT;
 const NETWORK = process.env.NEM_NETWORK;
 const ENDPOINT = process.env.NEM_ENDPOINT;
 
-var db = new sqlite3.Database(DATABASE_PATH);
+const sequelize = new Sequelize({ dialect: 'sqlite', storage: DATABASE_PATH });
 
-db.serialize(function () {
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='comments'", function (err, row) {
-        if (row == null) {
-            console.log("No comments table found, creating table.");
-            db.run("CREATE TABLE comments (id TEXT)");
-        }
+sequelize
+    .authenticate()
+    .then(() => {
+        console.log('Connection has been established successfully.');
+    })
+    .catch(err => {
+        console.error('Unable to connect to the database:', err);
     });
 
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='pms'", function (err, row) {
-        if (row == null) {
-            console.log("No pms table found, creating table.");
-            db.run("CREATE TABLE pms (id TEXT)");
-        }
-    });
+const User = sequelize.import(__dirname + "/models/user.js");
+const Pm = sequelize.import(__dirname + "/models/pm.js");
+const Comment = sequelize.import(__dirname + "/models/comment.js");
+const Tx = sequelize.import(__dirname + "/models/tx.js");
 
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='txs'", function (err, row) {
-        if (row == null) {
-            console.log("No transactions table found, creating table.");
-            db.run("CREATE TABLE txs (id TEXT)");
-        }
-    });
-
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='users'", function (err, row) {
-        if (row == null) {
-            console.log("No users table found, creating table.");
-            db.run("CREATE TABLE users (id TEXT, challenge TEXT, wallet TEXT)");
-        }
-    });
+sequelize.sync().then(() => {
+    console.log("Tables synced");
+}).catch(error => {
+    console.log("Error syncing tables");
 });
 
 fs.stat(WALLET_PATH, function (err, stat) {
@@ -143,7 +133,10 @@ function startDaemon(wallet) {
 
     monitorComments();
     monitorPms(wallet);
+    monitorTransactions(wallet);
+}
 
+function monitorTransactions(wallet) {
     var endpoint = nem.model.objects.create("endpoint")(ENDPOINT, nem.model.nodes.defaultPort);
 
     var account = getFirstAccount(wallet);
@@ -160,56 +153,43 @@ function startDaemon(wallet) {
         nem.crypto.helpers.passwordToPrivatekey(common, account, algo);
 
         res.forEach((tx) => {
-            isNewObj(tx.meta.id, "tx", (isNew) => {
-                if (isNew) {
-                    if (tx.transaction.message.type !== 2) {
-                        console.log(tx.transaction.signer);
-                        console.log(tx.transaction.message);
+            Tx.findById(tx.meta.id).then(transaction => {
+                if (transaction == null) {
+                    if (tx.transaction.message.type !== 2 && tx.transaction.message.payload) {
+                        //  Decode
+                        var wordArray = nem.crypto.js.enc.Hex.parse(tx.transaction.message.payload);
+                        var challengeCode = nem.crypto.js.enc.Utf8.stringify(wordArray);
 
-                        if (tx.transaction.message.payload) {
-                            //  Decode
-                            var wordArray = nem.crypto.js.enc.Hex.parse(tx.transaction.message.payload);
-                            var dec = nem.crypto.js.enc.Utf8.stringify(wordArray);
+                        User.findOne({ where: { challenge: challengeCode } }).then(user => {
+                            if (user) {
+                                var wallet = nem.model.wallet.createPRNG(user.username,
+                                    WALLET_PASSWORD,
+                                    NETWORK);
 
-                            try {
-                                getUserByChallengeCode(dec, (err, row) => {
-                                    if (row) {
-                                        var username = row.id;
+                                user.challenge = challengeCode;
+                                user.wallet = JSON.stringify(wallet);
 
-                                        var wallet = nem.model.wallet.createPRNG(username,
-                                            WALLET_PASSWORD,
-                                            NETWORK);
+                                user.save();
 
-                                        updateUser(username, {
-                                            id: username,
-                                            challenge: dec,
-                                            wallet: wallet
-                                        });
+                                var msg = {
+                                    to: user.username,
+                                    subject: "Account registered!",
+                                    text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
+                                    "We received your NEM transaction and your account has been successfully registered with the nem tip bot!\r\n\r\n" +
+                                    "We've sent you an address containing your " +
+                                    "You can start tipping immediately."
+                                }
 
-                                        var username = row.id;
-
-                                        var msg = {
-                                            to: username,
-                                            subject: "Account registered!",
-                                            text: "Hello again, /u/" + username + "!\r\n\r\n" +
-                                            "We received your NEM transaction and your account has been successfully registered with the nem tip bot!\r\n\r\n" +
-                                            "We've sent you an address containing your " +
-                                            "You can start tipping immediately."
-                                        }
-
-                                        r.composeMessage(msg);
-
-                                        markObjProcessed(tx.meta.id, 'txs');
-                                    }
-                                });
-                            } catch (e) {
-                                console.log(e);
+                                r.composeMessage(msg);
                             }
-                        }
+                        });
                     }
+
+                    //  Mark transaction as processed.
+                    Tx.build({id: tx.meta.id}).save();
                 }
             });
-        })
+        });
     }, function (err) {
         console.error(err);
     });
@@ -325,15 +305,11 @@ function postCommentReply(comment, body) {
 }
 
 function attemptTip(comment, tipAmount) {
-    isNewObj(comment.id, 'comments', (res) => {
-        if (res) {
-            console.log("Process the tip!");
-
+    Comment
+        .findOrCreate({ where: { id: comment.id }, defaults: { id: comment.id } })
+        .then(ct => {
             postCommentReply(comment, "Test reply");
-
-            markObjProcessed(comment.id, 'comments');
-        }
-    });
+        });
 }
 
 function processNewMessages() {
