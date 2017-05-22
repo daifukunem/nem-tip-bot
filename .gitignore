@@ -1,0 +1,9 @@
+node_modules/
+npm-debug.log
+
+.vscode/
+
+nem-tipbot.sqlite
+nem-tipbot.wlt
+
+.env

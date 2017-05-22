@@ -1,0 +1,20 @@
+{
+  "name": "nem-tipbot",
+  "version": "1.0.0",
+  "description": "nem-tipbot",
+  "main": "app.js",
+  "author": {
+    "name": "jon",
+    "email": ""
+  },
+  "scripts": {
+    "debug": "node --nolazy --debug-brk=5858 app.js"
+  },
+  "dependencies": {
+    "dotenv": "^4.0.0",
+    "nem-sdk": "^1.1.2",
+    "snoostream": "^1.0.1",
+    "snoowrap": "^1.13.0",
+    "sqlite3": "^3.1.8"
+  }
+}
