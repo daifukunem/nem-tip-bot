@@ -233,7 +233,9 @@ function processPm(pm, wallet) {
         var message = "Hello, /u/" + username + "!\r\n\r\n" +
             "please send a message to the NEM address: " + account.address + "\r\n\r\n" +
             "Your message must contain the following challenge code: " + "\r\n\r\n" +
-            "    " + challengeCode + "\r\n"
+            "    " + challengeCode + "\r\n\r\n" +
+            "and 6 XEM to send you your encrypted private key. If you do not include the" +
+            " 6 XEM in your transaction, we will not be able to send you your encrypted private key.";
 
         console.log(message);
 
