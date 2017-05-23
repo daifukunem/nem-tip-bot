@@ -127,15 +127,13 @@ function processTransaction(tx) {
 }
 
 function monitorComments() {
-    let tipCommentStream = snooStream.commentStream(SUBREDDIT, { regex: /!tip\s+(\d+)/ });
+    let tipCommentStream = snooStream.commentStream(SUBREDDIT, { regex: /!tip\s+(\d+)/, rate: 10000 });
 
     tipCommentStream.on('post', (comment, match) => {
         var tipAmount = parseInt(match[1]);
 
         attemptTip(comment, tipAmount);
     });
-
-    setTimeout(monitorComments, 10000);
 }
 
 function monitorPms(wallet) {
@@ -153,7 +151,7 @@ function monitorPms(wallet) {
         })
     });
 
-    setTimeout(monitorPms, 20000, wallet);
+    setTimeout(monitorPms, 10000, wallet);
 }
 
 function monitorTransactions(wallet) {
@@ -256,22 +254,10 @@ function getFirstAccount(wallet) {
     return wallet.accounts[0];
 }
 
-function postCommentReply(comment, body) {
-    comment.reply(body);
-}
-
 function attemptTip(comment, tipAmount) {
     Comment
         .findOrCreate({ where: { id: comment.id }, defaults: { id: comment.id } })
         .then(ct => {
-            postCommentReply(comment, "Test reply");
+            comment.reply("Test reply");
         });
-}
-
-function processNewMessages() {
-
-}
-
-function processNewTransactions() {
-
 }
