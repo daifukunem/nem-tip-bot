@@ -26,7 +26,7 @@ const WALLET_PATH = process.env.WALLET_PATH;
 const WALLET_PASSWORD = process.env.WALLET_PASSWORD;
 const SUBREDDIT = process.env.REDDIT_SUBREDDIT;
 
-const NETWORK = process.env.NEM_NETWORK;
+const NETWORK = parseInt(process.env.NEM_NETWORK);
 const ENDPOINT = process.env.NEM_ENDPOINT;
 
 const sequelize = new Sequelize({ dialect: 'sqlite', storage: DATABASE_PATH });
@@ -105,6 +105,14 @@ function processTransaction(botWallet, tx) {
                     WALLET_PASSWORD,
                     NETWORK);
 
+                var userAccount = getFirstAccount(wallet);
+
+                var userWalletCommon = {
+                    password: WALLET_PASSWORD
+                };
+
+                nem.crypto.helpers.passwordToPrivatekey(userWalletCommon, userAccount, userAccount.algo);
+
                 user.challenge = challengeCode;
                 user.wallet = JSON.stringify(wallet);
                 user.save();
@@ -122,7 +130,7 @@ function processTransaction(botWallet, tx) {
                 var common = nem.model.objects.create("common")(WALLET_PASSWORD, botCommon.privateKey);
                 var publicAddress = nem.model.address.toAddress(userSendPublicKey, NETWORK);
 
-                var transferTransaction = nem.model.objects.create("transferTransaction")(publicAddress, 0, botCommon.privateKey);
+                var transferTransaction = nem.model.objects.create("transferTransaction")(publicAddress, 0, userWalletCommon.privateKey);
 
                 transferTransaction.encryptMessage = true;
                 transferTransaction.recipientPubKey = userSendPublicKey;
