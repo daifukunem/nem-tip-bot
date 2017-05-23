@@ -86,15 +86,12 @@ fs.stat(WALLET_PATH, function (err, stat) {
 function startDaemon(wallet) {
     console.log("Starting daemon...");
 
-    var endpoint = nem.model.objects.create("endpoint")(ENDPOINT,
-        nem.model.nodes.defaultPort);
-
     monitorComments();
     monitorPms(wallet);
     monitorTransactions(wallet);
 }
 
-function processTransaction(tx) {
+function processTransaction(botWallet, tx) {
     if (tx.transaction.message.type !== 2 && tx.transaction.message.payload) {
         //  Decode challenge code.
         var wordArray = nem.crypto.js.enc.Hex.parse(tx.transaction.message.payload);
@@ -102,6 +99,8 @@ function processTransaction(tx) {
 
         User.findOne({ where: { challenge: challengeCode } }).then(user => {
             if (user) {
+                var userSendPublicKey = tx.transaction.signer;
+
                 var wallet = nem.model.wallet.createPRNG(user.username,
                     WALLET_PASSWORD,
                     NETWORK);
@@ -109,6 +108,32 @@ function processTransaction(tx) {
                 user.challenge = challengeCode;
                 user.wallet = JSON.stringify(wallet);
                 user.save();
+
+                var account = getFirstAccount(botWallet);
+
+                var botCommon = {
+                    password: WALLET_PASSWORD
+                };
+
+                var algo = account.algo;
+
+                nem.crypto.helpers.passwordToPrivatekey(botCommon, account, algo);
+
+                var common = nem.model.objects.create("common")(WALLET_PASSWORD, botCommon.privateKey);
+                var publicAddress = nem.model.address.toAddress(userSendPublicKey, NETWORK);
+
+                var transferTransaction = nem.model.objects.create("transferTransaction")(publicAddress, 0, botCommon.privateKey);
+
+                transferTransaction.encryptMessage = true;
+                transferTransaction.recipientPubKey = userSendPublicKey;
+
+                var prepareTransferTransaction = nem.model.transactions.prepare("transferTransaction");
+
+                var preparedTransferTransaction = prepareTransferTransaction(common, transferTransaction, NETWORK);
+
+                var endpoint = nem.model.objects.create("endpoint")(ENDPOINT, nem.model.nodes.defaultPort);
+
+                nem.model.transactions.send(common, preparedTransferTransaction, endpoint);
 
                 var msg = {
                     to: user.username,
@@ -154,10 +179,10 @@ function monitorPms(wallet) {
     setTimeout(monitorPms, 10000, wallet);
 }
 
-function monitorTransactions(wallet) {
+function monitorTransactions(botWallet) {
     var endpoint = nem.model.objects.create("endpoint")(ENDPOINT, nem.model.nodes.defaultPort);
 
-    var account = getFirstAccount(wallet);
+    var account = getFirstAccount(botWallet);
 
     nem.com.requests.account.incomingTransactions(endpoint, account.address).then(function (res) {
         console.log("\nIncoming transactions:");
@@ -173,7 +198,7 @@ function monitorTransactions(wallet) {
         res.forEach((tx) => {
             Tx.findById(tx.meta.id).then(transaction => {
                 if (transaction == null) {
-                    processTransaction(tx);
+                    processTransaction(botWallet, tx);
 
                     //  Mark transaction as processed.
                     Tx.build({ id: tx.meta.id }).save();
@@ -184,13 +209,14 @@ function monitorTransactions(wallet) {
         console.error(err);
     });
 
-    setTimeout(monitorTransactions, 10000, wallet);
+    setTimeout(monitorTransactions, 5000, botWallet);
 }
 
 function processPm(pm, wallet) {
     if (pm.body === "register") {
         var username = pm.author.name;
-        var challengeCode = nem.crypto.js.lib.WordArray.random(8);
+        var wa = nem.crypto.js.lib.WordArray.random(8);
+        var challengeCode = wa.toString()
 
         console.log("ChallengeCode: " + challengeCode);
 
@@ -206,6 +232,10 @@ function processPm(pm, wallet) {
         User.create({ username: username, challenge: challengeCode })
             .then(() => {
                 pm.reply(message);
+            })
+            .catch(error => {
+                console.log("Error creating user.");
+                console.log(error);
             });
     }
 }
