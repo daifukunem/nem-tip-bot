@@ -83,48 +83,6 @@ fs.stat(WALLET_PATH, function (err, stat) {
     }
 });
 
-function isNewObj(objId, objTable, cb) {
-    db.serialize(function () {
-        db.get("SELECT * FROM " + objTable + " WHERE id = ?", [objId], function (err, row) {
-            cb(row == null);
-        });
-    });
-}
-
-function updateUser(username, data, cb) {
-    isNewObj(username, 'users', (res) => {
-        if (res) {
-            db.serialize(function () {
-                var stmt = db.prepare("INSERT INTO " + objTable + " VALUES (?)");
-
-                for (var key in data) {
-                    stmt.run(data[key]);
-                }
-
-                stmt.finalize();
-            });
-        } else {
-            db.serialize(function () {
-                var stmt = db.prepare("UPDATE " + objTable + " VALUES (?) WHERE id = ?");
-
-                for (var key in data) {
-                    stmt.run(data[key]);
-                }
-
-                stmt.finalize();
-            });
-        }
-    });
-}
-
-function markObjProcessed(objId, objTable) {
-    db.serialize(function () {
-        var stmt = db.prepare("INSERT INTO " + objTable + " VALUES (?)");
-        stmt.run(objId);
-        stmt.finalize();
-    });
-}
-
 function startDaemon(wallet) {
     console.log("Starting daemon...");
 
@@ -134,6 +92,68 @@ function startDaemon(wallet) {
     monitorComments();
     monitorPms(wallet);
     monitorTransactions(wallet);
+}
+
+function processTransaction(tx) {
+    if (tx.transaction.message.type !== 2 && tx.transaction.message.payload) {
+        //  Decode challenge code.
+        var wordArray = nem.crypto.js.enc.Hex.parse(tx.transaction.message.payload);
+        var challengeCode = nem.crypto.js.enc.Utf8.stringify(wordArray);
+
+        User.findOne({ where: { challenge: challengeCode } }).then(user => {
+            if (user) {
+                var wallet = nem.model.wallet.createPRNG(user.username,
+                    WALLET_PASSWORD,
+                    NETWORK);
+
+                user.challenge = challengeCode;
+                user.wallet = JSON.stringify(wallet);
+                user.save();
+
+                var msg = {
+                    to: user.username,
+                    subject: "Account registered!",
+                    text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
+                    "We've received your NEM transaction and your account has been successfully registered with the nem tip bot!\r\n\r\n" +
+                    "We've sent you an address containing your tip account private key. Funds will be used from that address " +
+                    "so be sure it has XEM.\r\n\r\n" +
+                    "Aside from that, you can start tipping immediately."
+                }
+
+                r.composeMessage(msg);
+            }
+        });
+    }
+}
+
+function monitorComments() {
+    let tipCommentStream = snooStream.commentStream(SUBREDDIT, { regex: /!tip\s+(\d+)/ });
+
+    tipCommentStream.on('post', (comment, match) => {
+        var tipAmount = parseInt(match[1]);
+
+        attemptTip(comment, tipAmount);
+    });
+
+    setTimeout(monitorComments, 10000);
+}
+
+function monitorPms(wallet) {
+    r.getInbox("messages").then((res) => {
+        console.log("\nIncoming PMs:");
+        res.forEach((pm) => {
+            Pm.findById(pm.id).then(privateMessage => {
+                if (privateMessage == null) {
+                    processPm(pm, wallet);
+
+                    //  Mark pm as processed.
+                    Pm.build({ id: pm.id }).save();
+                }
+            });
+        })
+    });
+
+    setTimeout(monitorPms, 20000, wallet);
 }
 
 function monitorTransactions(wallet) {
@@ -165,100 +185,31 @@ function monitorTransactions(wallet) {
     }, function (err) {
         console.error(err);
     });
-}
 
-function processTransaction(tx) {
-    if (tx.transaction.message.type !== 2 && tx.transaction.message.payload) {
-        //  Decode challenge code.
-        var wordArray = nem.crypto.js.enc.Hex.parse(tx.transaction.message.payload);
-        var challengeCode = nem.crypto.js.enc.Utf8.stringify(wordArray);
-
-        User.findOne({ where: { challenge: challengeCode } }).then(user => {
-            if (user) {
-                var wallet = nem.model.wallet.createPRNG(user.username,
-                    WALLET_PASSWORD,
-                    NETWORK);
-
-                user.challenge = challengeCode;
-                user.wallet = JSON.stringify(wallet);
-
-                user.save();
-
-                var msg = {
-                    to: user.username,
-                    subject: "Account registered!",
-                    text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
-                    "We've received your NEM transaction and your account has been successfully registered with the nem tip bot!\r\n\r\n" +
-                    "We've sent you an address containing your tip account private key. Funds will be used from that address " +
-                    "so be sure it has XEM.\r\n\r\n" +
-                    "Aside from that, you can start tipping immediately."
-                }
-
-                r.composeMessage(msg);
-            }
-        });
-    }
-}
-
-function monitorComments() {
-    let tipCommentStream = snooStream.commentStream(SUBREDDIT, { regex: /!tip\s+(\d+)/ });
-
-    tipCommentStream.on('post', (comment, match) => {
-        var tipAmount = parseInt(match[1]);
-
-        attemptTip(comment, tipAmount);
-    });
-}
-
-function monitorPms(wallet) {
-    setInterval(() => {
-        r.getInbox("messages").then((res) => {
-            res.forEach((pm) => {
-                processPm(pm, wallet);
-            })
-        });
-    }, 10000);
+    setTimeout(monitorTransactions, 10000, wallet);
 }
 
 function processPm(pm, wallet) {
-    isNewObj(pm.id, 'pms', (res) => {
-        if (res) {
-            if (pm.new && pm.body === "register") {
-                //  Mark the PM as read first, this prevents
-                //  us accidentally spamming due to errors.
-                pm.markAsRead();
+    if (pm.body === "register") {
+        var username = pm.author.name;
+        var challengeCode = nem.crypto.js.lib.WordArray.random(8);
 
-                var username = pm.author.name;
-                var challengeCode = nem.crypto.js.lib.WordArray.random(8);
+        console.log("ChallengeCode: " + challengeCode);
 
-                console.log("ChallengeCode: " + challengeCode);
+        var account = getFirstAccount(wallet);
 
-                var account = getFirstAccount(wallet);
+        var message = "Hello, /u/" + username + "!\r\n\r\n" +
+            "please send a message to the NEM address: " + account.address + "\r\n\r\n" +
+            "Your message must contain the following challenge code: " + "\r\n\r\n" +
+            "    " + challengeCode + "\r\n"
 
-                var message = "Hello, /u/" + username + "!\r\n\r\n" +
-                    "please send a message to the NEM address: " + account.address + "\r\n\r\n" +
-                    "Your message must contain the following challenge code: " + "\r\n\r\n" +
-                    "    " + challengeCode + "\r\n"
+        console.log(message);
 
-                console.log(message);
-
-                updateUser(username, {
-                    id: username,
-                    challenge: challengeCode
-                });
-
+        User.create({ username: username, challenge: challengeCode })
+            .then(() => {
                 pm.reply(message);
-            }
-        }
-    });
-}
-
-function getUserByChallengeCode(challengeCode, cb) {
-    db.serialize(function () {
-        db.get("SELECT * FROM users WHERE challenge = ?", [challengeCode], function (err, row) {
-            cb(err, row);
-        });
-    });
+            });
+    }
 }
 
 function encString(wallet, str) {
