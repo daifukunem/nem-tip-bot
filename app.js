@@ -91,6 +91,10 @@ function startDaemon(wallet) {
     monitorTransactions(wallet);
 }
 
+function userToUser(fromUser, toUser, amount) {
+
+}
+
 function processTransaction(botWallet, tx) {
     if (tx.transaction.message.type !== 2 && tx.transaction.message.payload) {
         //  Decode challenge code.
@@ -99,41 +103,41 @@ function processTransaction(botWallet, tx) {
 
         User.findOne({ where: { challenge: challengeCode } }).then(user => {
             if (user) {
-                var userSendPublicKey = tx.transaction.signer;
+                var originPublicKey = tx.transaction.signer;
 
-                var wallet = nem.model.wallet.createPRNG(user.username,
+                var userWallet = nem.model.wallet.createPRNG(user.username,
                     WALLET_PASSWORD,
                     NETWORK);
 
-                var userAccount = getFirstAccount(wallet);
+                var userAccount = getFirstAccount(userWallet);
 
-                var userWalletCommon = {
+                var userCommon = {
                     password: WALLET_PASSWORD
                 };
 
-                nem.crypto.helpers.passwordToPrivatekey(userWalletCommon, userAccount, userAccount.algo);
+                nem.crypto.helpers.passwordToPrivatekey(userCommon, userAccount, userAccount.algo);
 
                 user.challenge = challengeCode;
-                user.wallet = JSON.stringify(wallet);
+                user.wallet = JSON.stringify(userWallet);
                 user.save();
 
-                var account = getFirstAccount(botWallet);
+                var botAccount = getFirstAccount(botWallet);
 
                 var botCommon = {
                     password: WALLET_PASSWORD
                 };
 
-                var algo = account.algo;
+                var algo = botAccount.algo;
 
-                nem.crypto.helpers.passwordToPrivatekey(botCommon, account, algo);
+                nem.crypto.helpers.passwordToPrivatekey(botCommon, botAccount, algo);
 
                 var common = nem.model.objects.create("common")(WALLET_PASSWORD, botCommon.privateKey);
-                var publicAddress = nem.model.address.toAddress(userSendPublicKey, NETWORK);
+                var publicAddress = nem.model.address.toAddress(originPublicKey, NETWORK);
 
-                var transferTransaction = nem.model.objects.create("transferTransaction")(publicAddress, 0, userWalletCommon.privateKey);
+                var transferTransaction = nem.model.objects.create("transferTransaction")(publicAddress, 0, userCommon.privateKey);
 
                 transferTransaction.encryptMessage = true;
-                transferTransaction.recipientPubKey = userSendPublicKey;
+                transferTransaction.recipientPubKey = originPublicKey;
 
                 var prepareTransferTransaction = nem.model.transactions.prepare("transferTransaction");
 
@@ -147,7 +151,7 @@ function processTransaction(botWallet, tx) {
                     to: user.username,
                     subject: "Account registered!",
                     text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
-                    "We've received your NEM transaction and your account has been successfully registered with the nem tip bot!\r\n\r\n" +
+                    "We've received your NEM transaction and your account has been successfully registered with the NEM tip bot!\r\n\r\n" +
                     "We've sent you an address containing your tip account private key. Funds will be used from that address " +
                     "so be sure it has XEM.\r\n\r\n" +
                     "Aside from that, you can start tipping immediately."
@@ -221,32 +225,41 @@ function monitorTransactions(botWallet) {
 }
 
 function processPm(pm, wallet) {
+    //  User that doesn't have pending tips.
     if (pm.body === "register") {
-        var username = pm.author.name;
-        var wa = nem.crypto.js.lib.WordArray.random(8);
-        var challengeCode = wa.toString()
+        User.findOne({ where: { challenge: challengeCode } }).then(user => {
+            var username = pm.author.name;
 
-        console.log("ChallengeCode: " + challengeCode);
+            var wa = nem.crypto.js.lib.WordArray.random(8);
+            var challengeCode = wa.toString()
 
-        var account = getFirstAccount(wallet);
+            console.log("ChallengeCode: " + challengeCode);
 
-        var message = "Hello, /u/" + username + "!\r\n\r\n" +
-            "please send a message to the NEM address: " + account.address + "\r\n\r\n" +
-            "Your message must contain the following challenge code: " + "\r\n\r\n" +
-            "    " + challengeCode + "\r\n\r\n" +
-            "and 6 XEM to send you your encrypted private key. If you do not include the" +
-            " 6 XEM in your transaction, we will not be able to send you your encrypted private key.";
+            var account = getFirstAccount(wallet);
 
-        console.log(message);
+            var message = "Hello, /u/" + username + "!\r\n\r\n" +
+                "please send a message to the NEM address: " + account.address + "\r\n\r\n" +
+                "Your message must contain the following challenge code: " + "\r\n\r\n" +
+                "    " + challengeCode + "\r\n\r\n" +
+                "and 6 XEM to send you your encrypted private key. If you do not include the" +
+                " 6 XEM in your transaction, we will not be able to send you your encrypted private key.";
 
-        User.create({ username: username, challenge: challengeCode })
-            .then(() => {
-                pm.reply(message);
-            })
-            .catch(error => {
-                console.log("Error creating user.");
-                console.log(error);
-            });
+            console.log(message);
+
+            if (user) {
+                user.challenge = challengeCode;
+                user.save();
+            } else {
+                User.create({ username: username, challenge: challengeCode })
+                    .then(() => {
+                        pm.reply(message);
+                    })
+                    .catch(error => {
+                        console.log("Error creating user.");
+                        console.log(error);
+                    });
+            }
+        });
     }
 }
 
