@@ -14,10 +14,12 @@ var r = new snoowrap({
 });
 
 r.config({
-    continueAfterRatelimitError: true
+    continueAfterRatelimitError: true,
+    maxRetryAttempts: 5,
+    requestDelay: 1000
 });
 
-let snooStream = SnooStream(r);
+let snooStream = SnooStream(r, drift = 10000);
 
 var fs = require('fs');
 
@@ -91,8 +93,59 @@ function startDaemon(wallet) {
     monitorTransactions(wallet);
 }
 
-function userToUser(fromUser, toUser, amount) {
+function walletToWallet(fromUserWallet, toUserWallet, amount) {
+    var fromUserAccount = getFirstAccount(fromUserWallet);
+    var toUserAccount = getFirstAccount(toUserWallet);
 
+    var fromUserDecrypted = {
+        password: WALLET_PASSWORD
+    };
+
+    var algo = fromUserAccount.algo;
+
+    nem.crypto.helpers.passwordToPrivatekey(fromUserDecrypted, fromUserAccount, algo);
+
+    var common = nem.model.objects.create("common")(WALLET_PASSWORD, fromUserDecrypted.privateKey);
+
+    var transferTransaction = nem.model.objects.create("transferTransaction")(toUserAccount.address, amount);
+
+    var prepareTransferTransaction = nem.model.transactions.prepare("transferTransaction");
+
+    var preparedTransferTransaction = prepareTransferTransaction(common, transferTransaction, NETWORK);
+
+    var endpoint = nem.model.objects.create("endpoint")(ENDPOINT, nem.model.nodes.defaultPort);
+
+    nem.model.transactions.send(common, preparedTransferTransaction, endpoint);
+}
+
+function userToUser(fromUsername, toUsername, amount) {
+    console.log("Sending " + amount + " XEM from " + "\\u\\" + fromUsername + " to " + "\\u\\" + toUsername);
+
+    User.findOne({ where: { username: fromUsername } })
+        .then(fromUser => {
+            if (fromUser && fromUser.wallet) {
+                User.findOrCreate({ where: { username: toUsername }, defaults: { username: toUsername } })
+                    .spread((toUser, created) => {
+                        if (toUser && toUser.wallet) {
+                            var fromUserWallet = JSON.parse(fromUser.wallet);
+                            var toUserWallet = JSON.parse(toUser.wallet);
+
+                            walletToWallet(fromUserWallet, toUserWallet, amount);
+                        } else if (toUser && toUser.wallet == null) {
+                            var fromUserWallet = JSON.parse(fromUser.wallet);
+                            var toUserWallet = nem.model.wallet.createPRNG(toUsername,
+                                WALLET_PASSWORD,
+                                NETWORK);
+
+                            toUser.wallet = JSON.stringify(toUserWallet);
+                            toUser.save()
+                                .then(() => {
+                                    walletToWallet(fromUserWallet, toUserWallet, amount);
+                                });
+                        }
+                    });
+            }
+        });
 }
 
 function processTransaction(botWallet, tx) {
@@ -164,7 +217,7 @@ function processTransaction(botWallet, tx) {
 }
 
 function monitorComments() {
-    let tipCommentStream = snooStream.commentStream(SUBREDDIT, { regex: /!tip\s+(\d+)/, rate: 10000 });
+    let tipCommentStream = snooStream.commentStream(SUBREDDIT, { regex: /!tipxem\s+(\d+)/, rate: 30000 });
 
     tipCommentStream.on('post', (comment, match) => {
         var tipAmount = parseInt(match[1]);
@@ -199,14 +252,6 @@ function monitorTransactions(botWallet) {
     nem.com.requests.account.incomingTransactions(endpoint, account.address).then(function (res) {
         console.log("\nIncoming transactions:");
 
-        var common = {
-            password: WALLET_PASSWORD
-        };
-
-        var algo = account.algo;
-
-        nem.crypto.helpers.passwordToPrivatekey(common, account, algo);
-
         res.forEach((tx) => {
             Tx.findById(tx.meta.id).then(transaction => {
                 if (transaction == null) {
@@ -225,19 +270,15 @@ function monitorTransactions(botWallet) {
 }
 
 function processPm(pm, wallet) {
-    //  User that doesn't have pending tips.
     if (pm.body === "register") {
-        User.findOne({ where: { challenge: challengeCode } }).then(user => {
-            var username = pm.author.name;
+        var username = pm.author.name;
 
+        User.findOne({ where: { username: username } }).then(user => {
             var wa = nem.crypto.js.lib.WordArray.random(8);
-            var challengeCode = wa.toString()
-
-            console.log("ChallengeCode: " + challengeCode);
-
+            var challengeCode = wa.toString();
             var account = getFirstAccount(wallet);
 
-            var message = "Hello, /u/" + username + "!\r\n\r\n" +
+            var registerMessage = "Hello, /u/" + username + "!\r\n\r\n" +
                 "please send a message to the NEM address: " + account.address + "\r\n\r\n" +
                 "Your message must contain the following challenge code: " + "\r\n\r\n" +
                 "    " + challengeCode + "\r\n\r\n" +
@@ -246,10 +287,8 @@ function processPm(pm, wallet) {
 
             console.log(message);
 
-            if (user) {
-                user.challenge = challengeCode;
-                user.save();
-            } else {
+            //  Never registered and no one has tipped them.
+            if (user == null) {
                 User.create({ username: username, challenge: challengeCode })
                     .then(() => {
                         pm.reply(message);
@@ -259,48 +298,24 @@ function processPm(pm, wallet) {
                         console.log(error);
                     });
             }
+            //  Never registered but someone has tipped them.
+            else if (user && user.wallet != null && user.challengeCode == null) {
+                user.challenge = challengeCode;
+                user.save()
+                    .then(() => {
+                        pm.reply(message);
+                    }).catch(error => {
+                        console.log("Error saving user.");
+                        console.log(error);
+                    });
+            }
+            //  Already registered.
+            else if (user && user.wallet != null && user.challengeCode != null) {
+                //  Send new challenge code to recover private key?
+                console.log("This user has already registered.");
+            }
         });
     }
-}
-
-function encString(wallet, str) {
-    var account = getFirstAccount(wallet);
-
-    var common = {
-        password: WALLET_PASSWORD
-    };
-
-    var algo = account.algo;
-
-    nem.crypto.helpers.passwordToPrivatekey(common, account, algo);
-
-    let kp = nem.crypto.keyPair.create(common.privateKey);
-
-    var enc = nem.crypto.helpers.encode(common.privateKey, kp.publicKey.toString(), str);
-
-    return enc;
-}
-
-function decString(wallet, str) {
-    var account = getFirstAccount(wallet);
-
-    var common = {
-        password: WALLET_PASSWORD
-    };
-
-    var algo = account.algo;
-
-    nem.crypto.helpers.passwordToPrivatekey(common, account, algo);
-
-    let kp = nem.crypto.keyPair.create(common.privateKey);
-
-    var hex = nem.crypto.helpers.decode(common.privateKey, kp.publicKey.toString(), str);
-
-    var dec = nem.crypto.js.enc.Hex.parse(hex);
-
-    var decString = nem.crypto.js.enc.Utf8.stringify(dec);
-
-    return decString;
 }
 
 function getFirstAccount(wallet) {
@@ -308,9 +323,31 @@ function getFirstAccount(wallet) {
 }
 
 function attemptTip(comment, tipAmount) {
+    console.log("Attempting Tip!");
+
+    console.log(comment);
+    console.log(tipAmount);
+
+    var tipMessage = "Hello, /u/username!\r\n\r\n" +
+        "You received a tip of " + tipAmount + "XEM!\r\n\r\n" +
+        "If you haven't already registered, please send me a PM with the following body:\r\n\r\n" +
+        "    " + "register" + "\r\n\r\n" +
+        "_Disclaimer: I am a bot_" + "\r\n\r\n";
+
     Comment
         .findOrCreate({ where: { id: comment.id }, defaults: { id: comment.id } })
-        .then(ct => {
-            comment.reply("Test reply");
+        .spread((ct, created) => {
+            var parentCommentId = null;
+
+            if (/^(t\d|LiveUpdateEvent)_/.test(comment.parent_id)) {
+                parentCommentId = comment.parent_id.split("_").pop();
+            }
+
+            r.getComment(parentCommentId).fetch().then(c => {
+                var fromAuthor = comment.author.name;
+                var toAuthor = c.author.name;
+
+                userToUser(fromAuthor, toAuthor, tipAmount);
+            });
         });
 }
