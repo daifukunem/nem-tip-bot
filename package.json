@@ -8,7 +8,8 @@
     "email": ""
   },
   "scripts": {
-    "debug": "node --nolazy --debug-brk=5858 app.js"
+    "debug": "node --nolazy --debug-brk=5858 app.js",
+    "start": "node app.js"
   },
   "dependencies": {
     "dotenv": "^4.0.0",
