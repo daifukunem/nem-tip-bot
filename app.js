@@ -19,7 +19,7 @@ r.config({
     requestDelay: 1000
 });
 
-let snooStream = SnooStream(r, drift = 10000);
+let snooStream = SnooStream(r/*, drift = 10000*/);
 
 var fs = require('fs');
 
@@ -328,12 +328,6 @@ function attemptTip(comment, tipAmount) {
     console.log(comment);
     console.log(tipAmount);
 
-    var tipMessage = "Hello, /u/username!\r\n\r\n" +
-        "You received a tip of " + tipAmount + "XEM!\r\n\r\n" +
-        "If you haven't already registered, please send me a PM with the following body:\r\n\r\n" +
-        "    " + "register" + "\r\n\r\n" +
-        "_Disclaimer: I am a bot_" + "\r\n\r\n";
-
     Comment
         .findOrCreate({ where: { id: comment.id }, defaults: { id: comment.id } })
         .spread((ct, created) => {
@@ -346,6 +340,14 @@ function attemptTip(comment, tipAmount) {
             r.getComment(parentCommentId).fetch().then(c => {
                 var fromAuthor = comment.author.name;
                 var toAuthor = c.author.name;
+
+                var tipMessage = "Hello, /u/" + toAuthor + "!\r\n\r\n" +
+                    "You received a tip of " + tipAmount + "XEM!\r\n\r\n" +
+                    "If you haven't already registered, please send me a PM with the following body:\r\n\r\n" +
+                    "    " + "register" + "\r\n\r\n" +
+                    "_Disclaimer: I am a bot_" + "\r\n\r\n";
+
+                comment.reply(tipMessage);
 
                 userToUser(fromAuthor, toAuthor, tipAmount);
             });
