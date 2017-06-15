@@ -270,7 +270,8 @@ function monitorTransactions(botWallet) {
 }
 
 function processPm(pm, wallet) {
-    if (pm.body === "register") {
+    console.log(pm);
+    if (pm.subject === "register") {
         var username = pm.author.name;
 
         User.findOne({ where: { username: username } }).then(user => {
