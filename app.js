@@ -285,13 +285,13 @@ function processPm(pm, wallet) {
                 "and 6 XEM to send you your encrypted private key. If you do not include the" +
                 " 6 XEM in your transaction, we will not be able to send you your encrypted private key.";
 
-            console.log(message);
+            console.log(registerMessage);
 
             //  Never registered and no one has tipped them.
             if (user == null) {
                 User.create({ username: username, challenge: challengeCode })
                     .then(() => {
-                        pm.reply(message);
+                        pm.reply(registerMessage);
                     })
                     .catch(error => {
                         console.log("Error creating user.");
@@ -303,7 +303,7 @@ function processPm(pm, wallet) {
                 user.challenge = challengeCode;
                 user.save()
                     .then(() => {
-                        pm.reply(message);
+                        pm.reply(registerMessage);
                     }).catch(error => {
                         console.log("Error saving user.");
                         console.log(error);
