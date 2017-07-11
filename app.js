@@ -220,9 +220,12 @@ function monitorComments() {
     let tipCommentStream = snooStream.commentStream(SUBREDDIT, { regex: /!tipxem\s+(\d+)/, rate: 30000 });
 
     tipCommentStream.on('post', (comment, match) => {
-        var tipAmount = parseInt(match[1]);
+        var tipAmount = parseFloat(match[1]).toFixed(6);
 
-        attemptTip(comment, tipAmount);
+        //  Don't try to tip if this number isn't valid.
+        if(isFinite(tipAmount)){
+            attemptTip(comment, tipAmount);
+        }
     });
 }
 
