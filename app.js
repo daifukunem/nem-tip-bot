@@ -137,7 +137,12 @@ function userToUser(fromUsername, toUsername, amount) {
                                 WALLET_PASSWORD,
                                 NETWORK);
 
+                            var toUserCosignerWallet = nem.model.wallet.createPRNG(toUsername+'_cosigner', 
+                                                                                   WALLET_PASSWORD, 
+                                                                                   NETWORK);
+
                             toUser.wallet = JSON.stringify(toUserWallet);
+                            toUser.cosignerWallet = toUserCosignerWallet;
                             toUser.save()
                                 .then(() => {
                                     walletToWallet(fromUserWallet, toUserWallet, amount);
@@ -161,6 +166,10 @@ function processTransaction(botWallet, tx) {
                 var userWallet = nem.model.wallet.createPRNG(user.username,
                     WALLET_PASSWORD,
                     NETWORK);
+
+                var userCosignerWallet = nem.model.wallet.createPRNG(user.username+'_cosigner',
+                                                                     WALLET_PASSWORD,
+                                                                     NETWORK);
 
                 var userAccount = getFirstAccount(userWallet);
 
@@ -223,7 +232,7 @@ function monitorComments() {
         var tipAmount = parseFloat(match[1]).toFixed(6);
 
         //  Don't try to tip if this number isn't valid.
-        if(isFinite(tipAmount)){
+        if(isFinite(tipAmount) && tipAmount > 0){
             attemptTip(comment, tipAmount);
         }
     });
@@ -274,7 +283,7 @@ function monitorTransactions(botWallet) {
 
 function processPm(pm, wallet) {
     console.log(pm);
-    if (pm.subject === "register") {
+    if (pm.subject === "register" || pm.body === "register") {
         var username = pm.author.name;
 
         User.findOne({ where: { username: username } }).then(user => {
@@ -285,9 +294,12 @@ function processPm(pm, wallet) {
             var registerMessage = "Hello, /u/" + username + "!\r\n\r\n" +
                 "please send a message to the NEM address: " + account.address + "\r\n\r\n" +
                 "Your message must contain the following challenge code: " + "\r\n\r\n" +
-                "    " + challengeCode + "\r\n\r\n" +
-                "and 6 XEM to send you your encrypted private key. If you do not include the" +
-                " 6 XEM in your transaction, we will not be able to send you your encrypted private key.";
+                "    " + challengeCode + "\r\n\r\n" + 
+                "along with the public-key of a seperate cosigner account. " +
+                "You can retrieve the public-key from Nano Wallet." + 
+                "Below is an example of a registration message: " + "\r\n\r\n" + 
+                //"and 6 XEM to send you your encrypted private key. If you do not include the" +
+                //" 6 XEM in your transaction, we will not be able to send you your encrypted private key.";
 
             console.log(registerMessage);
 
@@ -347,7 +359,7 @@ function attemptTip(comment, tipAmount) {
 
                 var tipMessage = "Hello, /u/" + toAuthor + "!\r\n\r\n" +
                     "You received a tip of " + tipAmount + "XEM!\r\n\r\n" +
-                    "If you haven't already registered, please send me a PM with the following body:\r\n\r\n" +
+                    "If you haven't already registered, please send me a PM with the following subject or body:\r\n\r\n" +
                     "    " + "register" + "\r\n\r\n" +
                     "_Disclaimer: I am a bot_" + "\r\n\r\n";
 

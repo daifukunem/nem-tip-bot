@@ -1,0 +1,14 @@
+{
+  "development": {
+    "dialect": "sqlite",
+    "storage": "nem-tipbot.sqlite"
+  },
+  "test": {
+    "dialect": "sqlite",
+    "storage": "nem-tipbot-test.sqlite"
+  },
+  "production": {
+    "dialect": "sqlite",
+    "storage": "nem-tipbot-prod.sqlite"
+  }
+}
