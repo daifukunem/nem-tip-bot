@@ -5,6 +5,8 @@ var snoowrap = require('snoowrap');
 const SnooStream = require('snoostream');
 const Sequelize = require('sequelize');
 
+var _ = require('underscore');
+
 var r = new snoowrap({
     userAgent: process.env.REDDIT_USER_AGENT,
     clientId: process.env.REDDIT_CLIENT_ID,
@@ -19,7 +21,7 @@ r.config({
     requestDelay: 1000
 });
 
-let snooStream = SnooStream(r/*, drift = 10000*/);
+let snooStream = SnooStream(r, drift = 1000);
 
 var fs = require('fs');
 
@@ -30,6 +32,29 @@ const SUBREDDIT = process.env.REDDIT_SUBREDDIT;
 
 const NETWORK = parseInt(process.env.NEM_NETWORK);
 const ENDPOINT = process.env.NEM_ENDPOINT;
+
+var ep = nem.model.objects.create("endpoint")(nem.model.nodes.defaultTestnet, nem.model.nodes.websocketPort);
+
+ep.host = "http://23.228.67.85"
+
+var address = "";
+var connector = nem.com.websockets.connector.create(ep, address);
+
+function connect(connector) {
+    return connector.connect().then(function () {
+        date = new Date();
+
+        console.log(date.toLocaleString() + ': Connected to: ' + connector.endpoint.host);
+
+        nem.com.websockets.subscribe.chain.blocks(connector, function (res) {
+            date = new Date();
+
+            console.log(date.toLocaleString() + ': ' + JSON.stringify(res) + '');
+
+            processBlock(res);
+        });
+    });
+}
 
 const sequelize = new Sequelize({ dialect: 'sqlite', storage: DATABASE_PATH });
 
@@ -53,44 +78,16 @@ sequelize.sync().then(() => {
     console.log("Error syncing tables");
 });
 
-fs.stat(WALLET_PATH, function (err, stat) {
-    if (err) {
-        if (err.code == "ENOENT") {
-            console.log("Wallet not found, creating new wallet.");
+startDaemon();
 
-            var wallet = nem.model.wallet.createPRNG("nem-tip-bot",
-                WALLET_PASSWORD,
-                NETWORK);
-            var wordArray = nem.crypto.js.enc.Utf8.parse(JSON.stringify(wallet));
-            var base64 = nem.crypto.js.enc.Base64.stringify(wordArray);
-
-            fs.writeFile(WALLET_PATH, base64, (err) => {
-                if (err) throw err;
-
-                startDaemon(wallet);
-            });
-        }
-    } else {
-        console.log("Wallet found, loading existing wallet.");
-
-        fs.readFile(WALLET_PATH, (err, data) => {
-            var base64 = data.toString();
-            var wordArray = nem.crypto.js.enc.Base64.parse(base64);
-            var wallet = JSON.parse(nem.crypto.js.enc.Utf8.stringify(wordArray));
-
-            console.log(wallet);
-
-            startDaemon(wallet);
-        });
-    }
-});
-
-function startDaemon(wallet) {
+function startDaemon() {
     console.log("Starting daemon...");
 
     monitorComments();
-    monitorPms(wallet);
-    monitorTransactions(wallet);
+    monitorPms();
+
+    //  Monitor Blocks
+    connect(connector);
 }
 
 function walletToWallet(fromUserWallet, toUserWallet, amount) {
@@ -137,12 +134,18 @@ function userToUser(fromUsername, toUsername, amount) {
                                 WALLET_PASSWORD,
                                 NETWORK);
 
-                            var toUserCosignerWallet = nem.model.wallet.createPRNG(toUsername+'_cosigner', 
-                                                                                   WALLET_PASSWORD, 
-                                                                                   NETWORK);
+                            var toUserCosignerWallet = nem.model.wallet.createPRNG(toUsername + '_cosigner',
+                                WALLET_PASSWORD,
+                                NETWORK);
 
                             toUser.wallet = JSON.stringify(toUserWallet);
                             toUser.cosignerWallet = toUserCosignerWallet;
+
+                            var toUserAccount = getFirstAccount(toUserAccount);
+
+                            toUser.address = toUserAccount[0].address;
+                            toUser.registered = false;
+
                             toUser.save()
                                 .then(() => {
                                     walletToWallet(fromUserWallet, toUserWallet, amount);
@@ -153,23 +156,75 @@ function userToUser(fromUsername, toUsername, amount) {
         });
 }
 
-function processTransaction(botWallet, tx) {
-    if (tx.transaction.message.type !== 2 && tx.transaction.message.payload) {
+function processBlock(block) {
+    console.log("Processing block: ");
+
+    var transactions = block['transactions'];
+
+    User.findAll({
+        attributes: ['address'],
+        where: {
+            address: {
+                $ne: null
+            },
+            $or: [
+                {
+                    registered: {
+                        $eq: null
+                    }
+                },
+                {
+                    registered: {
+                        $eq: false
+                    }
+                },
+            ]
+        }
+    }).then(res => {
+        var monitoredAddresses = _.pluck(res, 'address');
+
+        var filteredTxs = _.filter(transactions, function(tx){
+            return _.indexOf(monitoredAddresses, tx.recipient) != -1;
+        });
+
+        for(var i = 0; i < filteredTxs.length; ++i){
+            processTransaction(filteredTxs[i]);
+        }
+
+        console.log("Monitored Addresses: " + monitoredAddresses);
+        console.log("Filtered Txs: " + filteredTxs);
+    });
+}
+
+function processTransaction(tx) {
+    if (tx.message.type !== 2 && tx.message.payload) {
         //  Decode challenge code.
-        var wordArray = nem.crypto.js.enc.Hex.parse(tx.transaction.message.payload);
-        var challengeCode = nem.crypto.js.enc.Utf8.stringify(wordArray);
+        var wordArray = nem.crypto.js.enc.Hex.parse(tx.message.payload);
+        var message = nem.crypto.js.enc.Utf8.stringify(wordArray);
+
+        var challengeCode = null;
+        var publicKey = null;
+
+        var lines = message.split(/\r|\n|\s/);
+
+        if (lines.length == 2) {
+            challengeCode = lines[0];
+            publicKey = lines[1];
+        } else {
+            return;
+        }
 
         User.findOne({ where: { challenge: challengeCode } }).then(user => {
             if (user) {
-                var originPublicKey = tx.transaction.signer;
+                var originPublicKey = tx.signer;
 
                 var userWallet = nem.model.wallet.createPRNG(user.username,
                     WALLET_PASSWORD,
                     NETWORK);
 
-                var userCosignerWallet = nem.model.wallet.createPRNG(user.username+'_cosigner',
-                                                                     WALLET_PASSWORD,
-                                                                     NETWORK);
+                var userCosignerWallet = nem.model.wallet.createPRNG(user.username + '_cosigner',
+                    WALLET_PASSWORD,
+                    NETWORK);
 
                 var userAccount = getFirstAccount(userWallet);
 
@@ -179,21 +234,29 @@ function processTransaction(botWallet, tx) {
 
                 nem.crypto.helpers.passwordToPrivatekey(userCommon, userAccount, userAccount.algo);
 
+                user.address = userAccount.address;
                 user.challenge = challengeCode;
-                user.wallet = JSON.stringify(userWallet);
+                user.registered = true;
+
+                if (!user.wallet || user.wallet == null) {
+                    user.wallet = JSON.stringify(userWallet);
+                }
+
+                if (!user.cosignerWallet || user.cosignerWallet == null) {
+                    user.cosignerWallet = JSON.stringify(userCosignerWallet);
+                }
+
                 user.save();
 
-                var botAccount = getFirstAccount(botWallet);
-
-                var botCommon = {
+                var userCommon = {
                     password: WALLET_PASSWORD
                 };
 
-                var algo = botAccount.algo;
+                var algo = userAccount.algo;
 
-                nem.crypto.helpers.passwordToPrivatekey(botCommon, botAccount, algo);
+                nem.crypto.helpers.passwordToPrivatekey(userCommon, userAccount, algo);
 
-                var common = nem.model.objects.create("common")(WALLET_PASSWORD, botCommon.privateKey);
+                var common = nem.model.objects.create("common")(WALLET_PASSWORD, userCommon.privateKey);
                 var publicAddress = nem.model.address.toAddress(originPublicKey, NETWORK);
 
                 var transferTransaction = nem.model.objects.create("transferTransaction")(publicAddress, 0, userCommon.privateKey);
@@ -201,7 +264,7 @@ function processTransaction(botWallet, tx) {
                 transferTransaction.encryptMessage = true;
                 transferTransaction.recipientPubKey = originPublicKey;
 
-                var prepareTransferTransaction = nem.model.transactions.prepare("transferTransaction");
+                var prepareTransferTransaction = nem.model.transactions.prepare("multisigAggregateModificationTransaction");
 
                 var preparedTransferTransaction = prepareTransferTransaction(common, transferTransaction, NETWORK);
 
@@ -232,19 +295,19 @@ function monitorComments() {
         var tipAmount = parseFloat(match[1]).toFixed(6);
 
         //  Don't try to tip if this number isn't valid.
-        if(isFinite(tipAmount) && tipAmount > 0){
+        if (isFinite(tipAmount) && tipAmount > 0) {
             attemptTip(comment, tipAmount);
         }
     });
 }
 
-function monitorPms(wallet) {
+function monitorPms() {
     r.getInbox("messages").then((res) => {
         console.log("\nIncoming PMs:");
         res.forEach((pm) => {
             Pm.findById(pm.id).then(privateMessage => {
                 if (privateMessage == null) {
-                    processPm(pm, wallet);
+                    processPm(pm);
 
                     //  Mark pm as processed.
                     Pm.build({ id: pm.id }).save();
@@ -253,7 +316,7 @@ function monitorPms(wallet) {
         })
     });
 
-    setTimeout(monitorPms, 10000, wallet);
+    setTimeout(monitorPms, 10000);
 }
 
 function monitorTransactions(botWallet) {
@@ -267,7 +330,7 @@ function monitorTransactions(botWallet) {
         res.forEach((tx) => {
             Tx.findById(tx.meta.id).then(transaction => {
                 if (transaction == null) {
-                    processTransaction(botWallet, tx);
+                    processTransaction(tx);
 
                     //  Mark transaction as processed.
                     Tx.build({ id: tx.meta.id }).save();
@@ -281,31 +344,56 @@ function monitorTransactions(botWallet) {
     setTimeout(monitorTransactions, 5000, botWallet);
 }
 
-function processPm(pm, wallet) {
+function getRegisterMessage(username, address, challengeCode) {
+    var registerMessage = "Hello, /u/" + username + "!\r\n\r\n" +
+        "please send a message to the NEM address: " + address + "\r\n\r\n" +
+        "Your message must contain the following challenge code: " + "\r\n\r\n" +
+        "    " + challengeCode + "\r\n\r\n" +
+        "along with the public-key of a seperate cosigner account. " +
+        "You can retrieve the public-key from Nano Wallet." +
+        "Below is an example of a registration message: " + "\r\n\r\n";
+
+    console.log(registerMessage);
+
+    return registerMessage;
+}
+
+function processPm(pm) {
     console.log(pm);
+
     if (pm.subject === "register" || pm.body === "register") {
         var username = pm.author.name;
 
         User.findOne({ where: { username: username } }).then(user => {
             var wa = nem.crypto.js.lib.WordArray.random(8);
             var challengeCode = wa.toString();
-            var account = getFirstAccount(wallet);
-
-            var registerMessage = "Hello, /u/" + username + "!\r\n\r\n" +
-                "please send a message to the NEM address: " + account.address + "\r\n\r\n" +
-                "Your message must contain the following challenge code: " + "\r\n\r\n" +
-                "    " + challengeCode + "\r\n\r\n" + 
-                "along with the public-key of a seperate cosigner account. " +
-                "You can retrieve the public-key from Nano Wallet." + 
-                "Below is an example of a registration message: " + "\r\n\r\n" + 
-                //"and 6 XEM to send you your encrypted private key. If you do not include the" +
-                //" 6 XEM in your transaction, we will not be able to send you your encrypted private key.";
-
-            console.log(registerMessage);
 
             //  Never registered and no one has tipped them.
             if (user == null) {
-                User.create({ username: username, challenge: challengeCode })
+                var userWallet = nem.model.wallet.createPRNG(username,
+                    WALLET_PASSWORD,
+                    NETWORK);
+
+                var userWalletJson = JSON.stringify(userWallet);
+
+                var userCosignerWallet = nem.model.wallet.createPRNG(username + '_cosigner',
+                    WALLET_PASSWORD,
+                    NETWORK);
+
+                var userCosignerWalletJson = JSON.stringify(userCosignerWallet);
+
+                var account = getFirstAccount(userWallet);
+
+                var registerMessage = getRegisterMessage(username, account.address, challengeCode);
+
+                User.create({
+                    username: username,
+                    challenge: challengeCode,
+                    wallet: userWalletJson,
+                    cosignerWallet: userCosignerWalletJson,
+                    registered: false,
+                    address: account.address
+                })
                     .then(() => {
                         pm.reply(registerMessage);
                     })
@@ -320,7 +408,8 @@ function processPm(pm, wallet) {
                 user.save()
                     .then(() => {
                         pm.reply(registerMessage);
-                    }).catch(error => {
+                    })
+                    .catch(error => {
                         console.log("Error saving user.");
                         console.log(error);
                     });

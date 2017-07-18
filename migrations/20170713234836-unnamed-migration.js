@@ -2,7 +2,7 @@
 
 module.exports = {
   up: function (queryInterface, Sequelize) {
-    return queryInterface.addColumn('users', 'cosignerWallet', Sequelize.STRING)
+    return queryInterface.addColumn('users', 'cosignerWallet', Sequelize.STRING);
   },
 
   down: function (queryInterface, Sequelize) {
