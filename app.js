@@ -183,11 +183,11 @@ function processBlock(block) {
     }).then(res => {
         var monitoredAddresses = _.pluck(res, 'address');
 
-        var filteredTxs = _.filter(transactions, function(tx){
+        var filteredTxs = _.filter(transactions, function (tx) {
             return _.indexOf(monitoredAddresses, tx.recipient) != -1;
         });
 
-        for(var i = 0; i < filteredTxs.length; ++i){
+        for (var i = 0; i < filteredTxs.length; ++i) {
             processTransaction(filteredTxs[i]);
         }
 
@@ -226,51 +226,78 @@ function processTransaction(tx) {
                     WALLET_PASSWORD,
                     NETWORK);
 
-                var userAccount = getFirstAccount(userWallet);
-
-                var userCommon = {
-                    password: WALLET_PASSWORD
-                };
-
-                nem.crypto.helpers.passwordToPrivatekey(userCommon, userAccount, userAccount.algo);
-
-                user.address = userAccount.address;
-                user.challenge = challengeCode;
                 user.registered = true;
 
                 if (!user.wallet || user.wallet == null) {
                     user.wallet = JSON.stringify(userWallet);
+                } else {
+                    userWallet = JSON.parse(user.wallet);
                 }
 
                 if (!user.cosignerWallet || user.cosignerWallet == null) {
                     user.cosignerWallet = JSON.stringify(userCosignerWallet);
+                } else {
+                    userCosignerWallet = JSON.parse(user.cosignerWallet)
                 }
 
-                user.save();
+                var userAccount = getFirstAccount(userWallet);
+                var cosignerAccount = getFirstAccount(userCosignerWallet);
 
                 var userCommon = {
                     password: WALLET_PASSWORD
                 };
 
-                var algo = userAccount.algo;
+                var cosignerCommon = {
+                    password: WALLET_PASSWORD
+                };
 
-                nem.crypto.helpers.passwordToPrivatekey(userCommon, userAccount, algo);
+                nem.crypto.helpers.passwordToPrivatekey(userCommon, userAccount, userAccount.algo);
+                nem.crypto.helpers.passwordToPrivatekey(cosignerCommon, cosignerAccount, cosignerAccount.algo);
+
+                user.address = userAccount.address;
+
+                user.save();
 
                 var common = nem.model.objects.create("common")(WALLET_PASSWORD, userCommon.privateKey);
                 var publicAddress = nem.model.address.toAddress(originPublicKey, NETWORK);
 
-                var transferTransaction = nem.model.objects.create("transferTransaction")(publicAddress, 0, userCommon.privateKey);
+                var kp = nem.crypto.keyPair.create(cosignerCommon.privateKey);
 
-                transferTransaction.encryptMessage = true;
-                transferTransaction.recipientPubKey = originPublicKey;
+                var multisigAggregateModificationTransaction =
+                    {
+                        isMultiSig: false,
+                        modifications: [
+                            {
+                                'modificationType': 1,
+                                'cosignatoryAccount': originPublicKey
+                            },
+                            {
+                                'modificationType': 1,
+                                'cosignatoryAccount': publicKey
+                            },
+                            {
+                                'modificationType': 1,
+                                'cosignatoryAccount': kp.publicKey.toString()
+                            }
+                        ],
+                        minCosignatories: {
+                            "relativeChange": 2
+                        },
+                        relativeChange: 3
+                    }
 
-                var prepareTransferTransaction = nem.model.transactions.prepare("multisigAggregateModificationTransaction");
+                console.log(multisigAggregateModificationTransaction);
 
-                var preparedTransferTransaction = prepareTransferTransaction(common, transferTransaction, NETWORK);
+                var prepareMultisigAggModTransaction = nem.model.transactions.prepare("multisigAggregateModificationTransaction");
+
+                var preparedMultisigAggModTransaction = prepareMultisigAggModTransaction(common, multisigAggregateModificationTransaction, NETWORK);
 
                 var endpoint = nem.model.objects.create("endpoint")(ENDPOINT, nem.model.nodes.defaultPort);
 
-                nem.model.transactions.send(common, preparedTransferTransaction, endpoint);
+                nem.model.transactions.send(common, preparedMultisigAggModTransaction, endpoint).then((res) => {
+                   console.log(res);
+                   console.log("LOL LOL LOL"); 
+                });
 
                 var msg = {
                     to: user.username,
