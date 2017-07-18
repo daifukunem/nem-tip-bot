@@ -226,8 +226,6 @@ function processTransaction(tx) {
                     WALLET_PASSWORD,
                     NETWORK);
 
-                user.registered = true;
-
                 if (!user.wallet || user.wallet == null) {
                     user.wallet = JSON.stringify(userWallet);
                 } else {
@@ -283,7 +281,7 @@ function processTransaction(tx) {
                         minCosignatories: {
                             "relativeChange": 2
                         },
-                        relativeChange: 3
+                        relativeChange: 2
                     }
 
                 console.log(multisigAggregateModificationTransaction);
@@ -295,21 +293,36 @@ function processTransaction(tx) {
                 var endpoint = nem.model.objects.create("endpoint")(ENDPOINT, nem.model.nodes.defaultPort);
 
                 nem.model.transactions.send(common, preparedMultisigAggModTransaction, endpoint).then((res) => {
-                   console.log(res);
-                   console.log("LOL LOL LOL"); 
+                    console.log(res);
+                    console.log("LOL LOL LOL");
+
+                    if (res.code == 1) {
+                        user.registered = true;
+                        user.save();
+
+                        var msg = {
+                            to: user.username,
+                            subject: "Account registered!",
+                            text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
+                            "We've received your NEM transaction and your account has been successfully registered with the NEM tip bot!\r\n\r\n" +
+                            "We've sent you an address containing your tip account private key. Funds will be used from that address " +
+                            "so be sure it has XEM.\r\n\r\n" +
+                            "Aside from that, you can start tipping immediately."
+                        }
+
+                        r.composeMessage(msg);
+                    } else {
+                        var msg = {
+                            to: user.username,
+                            subject: "Registration error!",
+                            text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
+                            "We've received your NEM transaction however there was an error when trying to create the multi-sig account.\r\n\r\n" + 
+                            "Please verify your transaction contained the correct public-key in the message and enough XEM to create the multi-sig account."
+                        }
+
+                        r.composeMessage(msg);
+                    }
                 });
-
-                var msg = {
-                    to: user.username,
-                    subject: "Account registered!",
-                    text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
-                    "We've received your NEM transaction and your account has been successfully registered with the NEM tip bot!\r\n\r\n" +
-                    "We've sent you an address containing your tip account private key. Funds will be used from that address " +
-                    "so be sure it has XEM.\r\n\r\n" +
-                    "Aside from that, you can start tipping immediately."
-                }
-
-                r.composeMessage(msg);
             }
         });
     }
