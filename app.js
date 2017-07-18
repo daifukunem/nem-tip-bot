@@ -289,7 +289,7 @@ function processTransaction(tx) {
 }
 
 function monitorComments() {
-    let tipCommentStream = snooStream.commentStream(SUBREDDIT, { regex: /!tipxem\s+(\d+)/, rate: 30000 });
+    let tipCommentStream = snooStream.commentStream(SUBREDDIT, { regex: /!tipxem\s+((?=.*\d)\d*(?:\.\d+)?)/, rate: 30000 });
 
     tipCommentStream.on('post', (comment, match) => {
         var tipAmount = parseFloat(match[1]).toFixed(6);
