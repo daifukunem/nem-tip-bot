@@ -21,7 +21,7 @@ r.config({
     requestDelay: 1000
 });
 
-let snooStream = SnooStream(r, drift = 1000);
+let snooStream = SnooStream(r/*, drift = 2000*/);
 
 var fs = require('fs');
 
@@ -90,10 +90,12 @@ function startDaemon() {
     connect(connector);
 }
 
-function walletToWallet(fromUserWallet, toUserWallet, amount) {
+function walletToWallet(fromUserWallet, fromUserCosignerWallet, toUserWallet, amount) {
     var fromUserAccount = getFirstAccount(fromUserWallet);
+    var fromUserCosignerAccount = getFirstAccount(fromUserCosignerWallet);
     var toUserAccount = getFirstAccount(toUserWallet);
 
+    //  Multi-sig account
     var fromUserDecrypted = {
         password: WALLET_PASSWORD
     };
@@ -102,17 +104,38 @@ function walletToWallet(fromUserWallet, toUserWallet, amount) {
 
     nem.crypto.helpers.passwordToPrivatekey(fromUserDecrypted, fromUserAccount, algo);
 
-    var common = nem.model.objects.create("common")(WALLET_PASSWORD, fromUserDecrypted.privateKey);
+    var fromUserCommon = nem.model.objects.create("common")(WALLET_PASSWORD, fromUserDecrypted.privateKey);
 
+    var fromUserKp = nem.crypto.keyPair.create(fromUserDecrypted.privateKey);
+
+
+    //  Cosigner-account
+    var fromUserCosignerDecrypted = {
+        password: WALLET_PASSWORD
+    };
+
+    algo = fromUserCosignerAccount.algo;
+
+    nem.crypto.helpers.passwordToPrivatekey(fromUserCosignerDecrypted, fromUserCosignerAccount, algo);
+
+    var fromUserCosignerCommon = nem.model.objects.create("common")(WALLET_PASSWORD, fromUserCosignerDecrypted.privateKey);
+
+    var fromUserCosignerKp = nem.crypto.keyPair.create(fromUserCosignerDecrypted.privateKey);
+
+    //  Create multi-sig transfer transaction
     var transferTransaction = nem.model.objects.create("transferTransaction")(toUserAccount.address, amount);
+    transferTransaction.isMultisig = true;
+    transferTransaction.multisigAccount = { publicKey: fromUserKp.publicKey.toString() };
 
     var prepareTransferTransaction = nem.model.transactions.prepare("transferTransaction");
 
-    var preparedTransferTransaction = prepareTransferTransaction(common, transferTransaction, NETWORK);
+    var preparedTransferTransaction = prepareTransferTransaction(fromUserCosignerCommon, transferTransaction, NETWORK);
 
     var endpoint = nem.model.objects.create("endpoint")(ENDPOINT, nem.model.nodes.defaultPort);
 
-    nem.model.transactions.send(common, preparedTransferTransaction, endpoint);
+    nem.model.transactions.send(fromUserCosignerCommon, preparedTransferTransaction, endpoint).then((res) => {
+        console.log(res);
+    });
 }
 
 function userToUser(fromUsername, toUsername, amount) {
@@ -125,9 +148,10 @@ function userToUser(fromUsername, toUsername, amount) {
                     .spread((toUser, created) => {
                         if (toUser && toUser.wallet) {
                             var fromUserWallet = JSON.parse(fromUser.wallet);
+                            var fromUserCosignerWallet = JSON.parse(fromUser.cosignerWallet);
                             var toUserWallet = JSON.parse(toUser.wallet);
 
-                            walletToWallet(fromUserWallet, toUserWallet, amount);
+                            walletToWallet(fromUserWallet, fromUserCosignerWallet, toUserWallet, amount);
                         } else if (toUser && toUser.wallet == null) {
                             var fromUserWallet = JSON.parse(fromUser.wallet);
                             var toUserWallet = nem.model.wallet.createPRNG(toUsername,
@@ -148,7 +172,7 @@ function userToUser(fromUsername, toUsername, amount) {
 
                             toUser.save()
                                 .then(() => {
-                                    walletToWallet(fromUserWallet, toUserWallet, amount);
+                                    walletToWallet(fromUserWallet, fromUserCosignerWallet, toUserWallet, amount);
                                 });
                         }
                     });
@@ -294,7 +318,6 @@ function processTransaction(tx) {
 
                 nem.model.transactions.send(common, preparedMultisigAggModTransaction, endpoint).then((res) => {
                     console.log(res);
-                    console.log("LOL LOL LOL");
 
                     if (res.code == 1) {
                         user.registered = true;
@@ -316,7 +339,7 @@ function processTransaction(tx) {
                             to: user.username,
                             subject: "Registration error!",
                             text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
-                            "We've received your NEM transaction however there was an error when trying to create the multi-sig account.\r\n\r\n" + 
+                            "We've received your NEM transaction however there was an error when trying to create the multi-sig account.\r\n\r\n" +
                             "Please verify your transaction contained the correct public-key in the message and enough XEM to create the multi-sig account."
                         }
 
@@ -359,31 +382,6 @@ function monitorPms() {
     setTimeout(monitorPms, 10000);
 }
 
-function monitorTransactions(botWallet) {
-    var endpoint = nem.model.objects.create("endpoint")(ENDPOINT, nem.model.nodes.defaultPort);
-
-    var account = getFirstAccount(botWallet);
-
-    nem.com.requests.account.incomingTransactions(endpoint, account.address).then(function (res) {
-        console.log("\nIncoming transactions:");
-
-        res.forEach((tx) => {
-            Tx.findById(tx.meta.id).then(transaction => {
-                if (transaction == null) {
-                    processTransaction(tx);
-
-                    //  Mark transaction as processed.
-                    Tx.build({ id: tx.meta.id }).save();
-                }
-            });
-        });
-    }, function (err) {
-        console.error(err);
-    });
-
-    setTimeout(monitorTransactions, 5000, botWallet);
-}
-
 function getRegisterMessage(username, address, challengeCode) {
     var registerMessage = "Hello, /u/" + username + "!\r\n\r\n" +
         "please send a message to the NEM address: " + address + "\r\n\r\n" +
@@ -391,7 +389,9 @@ function getRegisterMessage(username, address, challengeCode) {
         "    " + challengeCode + "\r\n\r\n" +
         "along with the public-key of a seperate cosigner account. " +
         "You can retrieve the public-key from Nano Wallet." +
-        "Below is an example of a registration message: " + "\r\n\r\n";
+        "Below is an example of a registration message: " + "\r\n\r\n" +
+        "    " + "b83978a9393d3277" + "\r\n\r\n" +
+        "    " + "1c9ffd4361887a5bb448060df37b2f500c51580e57d512f97dddc7b7e547508a" + "\r\n\r\n";
 
     console.log(registerMessage);
 
