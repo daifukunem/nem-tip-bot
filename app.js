@@ -384,14 +384,26 @@ function monitorPms() {
 
 function getRegisterMessage(username, address, challengeCode) {
     var registerMessage = "Hello, /u/" + username + "!\r\n\r\n" +
-        "please send a message to the NEM address: " + address + "\r\n\r\n" +
+        "Reddit tipbot is a 2FA trustless tipping bot! Your funds are always safe.\r\n" +
+        "It is controlled by a 2-of-3 multisig account, with you in charge of 2 of the keys.\r\n" +
+        "When you leave a comment on Reddit to tip, the tipbot will initiate a transaction for you. " + 
+        "Once the transaction has been initiated, you will need to approve it from within your NanoWallet." +
+
+        "Please send a message from the acount you would like to 2FA approve tips from.\r\n\r\n" + 
+        "Send the message to the the NEM address: " + address + "\r\n\r\n" +
         "Your message must contain the following challenge code: " + "\r\n\r\n" +
         "    " + challengeCode + "\r\n\r\n" +
-        "along with the public-key of a seperate cosigner account. " +
+        "Along with this code, please send the public-key of a seperate backup cosigner account." +
         "You can retrieve the public-key from Nano Wallet." +
-        "Below is an example of a registration message: " + "\r\n\r\n" +
-        "    " + "b83978a9393d3277" + "\r\n\r\n" +
-        "    " + "1c9ffd4361887a5bb448060df37b2f500c51580e57d512f97dddc7b7e547508a" + "\r\n\r\n";
+        "Below is an _example_ of a registration message: " + "\r\n\r\n" +
+        "    " + challengeCode + "\r\n\r\n" +
+        "    " + "1c9ffd4361887a5bb448060df37b2f500c51580e57d512f97dddc7b7e547508a" + "\r\n\r\n" +
+        "After registering these two accounts, you will have full control of your funds to make transactions " +
+        "even without the tipbot. Also, since the tipbot only controls 1-of-3 keys, it will never be able to spend " +
+        "your money without your permission." + "\r\n\r\n" +
+        "The tipbot's main job is to make tipping as easy as possible for you. It watches reddit for any tips you'd like to send and " +
+        "will automatically begin a transaction on your behalf. All you need to do is approve the transaction in your 2FA account. " +
+        "No need to know the other peron's address or prepare a transaction, the hard part has been automated for you by the NEM Reddit tipbot.";
 
     console.log(registerMessage);
 
