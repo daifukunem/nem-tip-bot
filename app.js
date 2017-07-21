@@ -321,6 +321,7 @@ function processTransaction(tx) {
 
                     if (res.code == 1) {
                         user.registered = true;
+                        user.challenge = null;
                         user.save();
 
                         var msg = {
