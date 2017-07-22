@@ -229,7 +229,7 @@ function processTransaction(tx) {
         var challengeCode = null;
         var publicKey = null;
 
-        var lines = message.split(/\r|\n|\s/);
+        var lines = message.split(/[-]/);
 
         if (lines.length == 2) {
             challengeCode = lines[0];
@@ -395,16 +395,15 @@ function getRegisterMessage(username, address, challengeCode) {
         "Your message must contain the following challenge code: " + "\r\n\r\n" +
         "    " + challengeCode + "\r\n\r\n" +
         "Along with this code, please send the public-key of a seperate backup cosigner account." +
-        "You can retrieve the public-key from Nano Wallet." +
+        "Please insert the public key preceded by a dash. You can retrieve the public-key from Nano Wallet." +
         "Below is an _example_ of a registration message: " + "\r\n\r\n" +
-        "    " + challengeCode + "\r\n\r\n" +
-        "    " + "1c9ffd4361887a5bb448060df37b2f500c51580e57d512f97dddc7b7e547508a" + "\r\n\r\n" +
+        "    " + challengeCode + "-" + "1c9ffd4361887a5bb448060df37b2f500c51580e57d512f97dddc7b7e547508a" + "\r\n\r\n" +
         "After registering these two accounts, you will have full control of your funds to make transactions " +
         "even without the tipbot. Also, since the tipbot only controls 1-of-3 keys, it will never be able to spend " +
         "your money without your permission." + "\r\n\r\n" +
         "The tipbot's main job is to make tipping as easy as possible for you. It watches reddit for any tips you'd like to send and " +
-        "will automatically begin a transaction on your behalf. All you need to do is approve the transaction in your 2FA account. " +
-        "No need to know the other peron's address or prepare a transaction, the hard part has been automated for you by the NEM Reddit tipbot.";
+        "will automatically begin a transaction on your behalf. All you need to do is approve the transaction in with 2FA account using NanoWallet. " +
+        "There's no need to know the other peron's address or prepare a transaction, the hard part has been automated for you by the NEM Reddit tipbot.";
 
     console.log(registerMessage);
 
