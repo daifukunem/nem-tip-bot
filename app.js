@@ -341,7 +341,7 @@ function processTransaction(tx) {
                             subject: "Registration error!",
                             text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
                             "We've received your NEM transaction however there was an error when trying to create the multi-sig account.\r\n\r\n" +
-                            "Please verify your transaction contained the correct public-key in the message and enough XEM to create the multi-sig account."
+                            "Please verify your transaction contained the correct public-key in the message and enough XEM to create a multi-sig account."
                         }
 
                         r.composeMessage(msg);
@@ -390,7 +390,7 @@ function getRegisterMessage(username, address, challengeCode) {
         "When you leave a comment on Reddit to tip, the tipbot will initiate a transaction for you. " + 
         "Once the transaction has been initiated, you will need to approve it from within your NanoWallet." +
 
-        "Please send a message from the acount you would like to 2FA approve tips from.\r\n\r\n" + 
+        "Please send at least _0.5 XEM_ with a message from the account you would like to 2FA approve tips from.\r\n\r\n" + 
         "Send the message to the the NEM address: " + address + "\r\n\r\n" +
         "Your message must contain the following challenge code: " + "\r\n\r\n" +
         "    " + challengeCode + "\r\n\r\n" +
