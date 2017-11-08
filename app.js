@@ -331,6 +331,7 @@ function processTransaction(tx) {
                             "We've received your NEM transaction and your account has been successfully registered with the NEM tip bot!\r\n\r\n" +
                             "We've sent you an address containing your tip account private key. Funds will be used from that address " +
                             "so be sure it has XEM.\r\n\r\n" +
+                            "You can deposit your XEM into `" + user.address + "`\r\n\r\n" + 
                             "Aside from that, you can start tipping immediately."
                         }
 
@@ -391,7 +392,7 @@ function getRegisterMessage(username, address, challengeCode) {
         "Once the transaction has been initiated, you will need to approve it from within your NanoWallet." +
 
         "Please send at least _0.5 XEM_ with a message from the account you would like to 2FA approve tips from.\r\n\r\n" + 
-        "Send the message to the the NEM address: " + address + "\r\n\r\n" +
+        "Send the message to the the NEM address: `" + address + "`\r\n\r\n" +
         "Your message must contain the following challenge code: " + "\r\n\r\n" +
         "    " + challengeCode + "\r\n\r\n" +
         "Along with this code, please send the public-key of a seperate backup cosigner account." +

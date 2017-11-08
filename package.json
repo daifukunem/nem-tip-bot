@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "dotenv": "^4.0.0",
-    "nem-sdk": "^1.4.0",
+    "nem-sdk": "^1.5.1",
     "sequelize": "^3.30.4",
     "sequelize-cli": "^2.7.0",
     "snoostream": "^1.0.1",
