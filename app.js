@@ -328,11 +328,11 @@ function processTransaction(tx) {
                             to: user.username,
                             subject: "Account registered!",
                             text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
-                            "We've received your NEM transaction and your account has been successfully registered with the NEM tip bot!\r\n\r\n" +
-                            "We've sent you an address containing your tip account private key. Funds will be used from that address " +
-                            "so be sure it has XEM.\r\n\r\n" +
-                            "You can deposit your XEM into `" + user.address + "`\r\n\r\n" + 
-                            "Aside from that, you can start tipping immediately."
+                                "We've received your NEM transaction and your account has been successfully registered with the NEM tip bot!\r\n\r\n" +
+                                "We've sent you an address containing your tip account private key. Funds will be used from that address " +
+                                "so be sure it has XEM.\r\n\r\n" +
+                                "You can deposit your XEM into `" + user.address + "`\r\n\r\n" +
+                                "Aside from that, you can start tipping immediately."
                         }
 
                         r.composeMessage(msg);
@@ -341,8 +341,8 @@ function processTransaction(tx) {
                             to: user.username,
                             subject: "Registration error!",
                             text: "Hello again, /u/" + user.username + "!\r\n\r\n" +
-                            "We've received your NEM transaction however there was an error when trying to create the multi-sig account.\r\n\r\n" +
-                            "Please verify your transaction contained the correct public-key in the message and enough XEM to create a multi-sig account."
+                                "We've received your NEM transaction however there was an error when trying to create the multi-sig account.\r\n\r\n" +
+                                "Please verify your transaction contained the correct public-key in the message and enough XEM to create a multi-sig account."
                         }
 
                         r.composeMessage(msg);
@@ -388,10 +388,10 @@ function getRegisterMessage(username, address, challengeCode) {
     var registerMessage = "Hello, /u/" + username + "!\r\n\r\n" +
         "Reddit tipbot is a 2FA trustless tipping bot! Your funds are always safe.\r\n" +
         "It is controlled by a 2-of-3 multisig account, with you in charge of 2 of the keys.\r\n" +
-        "When you leave a comment on Reddit to tip, the tipbot will initiate a transaction for you. " + 
+        "When you leave a comment on Reddit to tip, the tipbot will initiate a transaction for you. " +
         "Once the transaction has been initiated, you will need to approve it from within your NanoWallet." +
 
-        "Please send at least _0.5 XEM_ with a message from the account you would like to 2FA approve tips from.\r\n\r\n" + 
+        "Please send at least _0.5 XEM_ with a message from the account you would like to 2FA approve tips from.\r\n\r\n" +
         "Send the message to the the NEM address: `" + address + "`\r\n\r\n" +
         "Your message must contain the following challenge code: " + "\r\n\r\n" +
         "    " + challengeCode + "\r\n\r\n" +
@@ -413,6 +413,7 @@ function getRegisterMessage(username, address, challengeCode) {
 
 function processPm(pm) {
     console.log(pm);
+    console.log("Processing PM");
 
     if (pm.subject === "register" || pm.body === "register") {
         var username = pm.author.name;
@@ -437,7 +438,11 @@ function processPm(pm) {
 
                 var account = getFirstAccount(userWallet);
 
+                console.log("Before register message");
+
                 var registerMessage = getRegisterMessage(username, account.address, challengeCode);
+
+                console.log(registerMessage);
 
                 User.create({
                     username: username,
@@ -456,8 +461,11 @@ function processPm(pm) {
                     });
             }
             //  Never registered but someone has tipped them.
-            else if (user && user.wallet != null && user.challengeCode == null) {
-                user.challenge = challengeCode;
+            else if (user && user.wallet != null && user.challenge == null) {
+                console.log("User has never registered but someone has probably tipped them.");
+
+                var registerMessage = getRegisterMessage(username, user.address, user.challenge);
+
                 user.save()
                     .then(() => {
                         pm.reply(registerMessage);
@@ -468,8 +476,18 @@ function processPm(pm) {
                     });
             }
             //  Already registered.
-            else if (user && user.wallet != null && user.challengeCode != null) {
-                //  Send new challenge code to recover private key?
+            else if (user && user.wallet != null && user.challenge != null) {
+                var registerMessage = getRegisterMessage(username, user.address, user.challenge);
+
+                user.save()
+                    .then(() => {
+                        pm.reply(registerMessage);
+                    })
+                    .catch(error => {
+                        console.log("Error saving user.");
+                        console.log(error);
+                    });
+                
                 console.log("This user has already registered.");
             }
         });
